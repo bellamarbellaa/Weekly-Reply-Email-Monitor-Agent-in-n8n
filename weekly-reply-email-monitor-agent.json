@@ -1,0 +1,532 @@
+{
+  "name": "Weekly Reply Email Monitor Agent",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "triggerAtDay": [
+                1
+              ],
+              "triggerAtHour": 7
+            }
+          ]
+        }
+      },
+      "id": "a543d5d6-179b-49f7-8c25-71143d29baab",
+      "name": "Every Monday 07:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        224,
+        416
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "5d6d0528-11cd-4557-aaf7-a14ba8b030aa",
+      "name": "Test Run",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        224,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "2bccc98b-3602-4af1-88c6-4c8f3a7ed45c",
+              "name": "personal_email",
+              "value": "your.personal@gmail.com",
+              "type": "string"
+            },
+            {
+              "id": "76ec621c-db04-4592-89c8-5f36cd7243bd",
+              "name": "work_email",
+              "value": "your.work@gmail.com",
+              "type": "string"
+            },
+            {
+              "id": "62179873-38ec-463b-982f-c49f745b9246",
+              "name": "summary_to",
+              "value": "your.personal@gmail.com",
+              "type": "string"
+            },
+            {
+              "id": "097217bf-df30-4259-9228-f7bb610710f6",
+              "name": "my_name",
+              "value": "Your Name",
+              "type": "string"
+            },
+            {
+              "id": "5dab8bfc-c87e-4022-b350-c60ba394d358",
+              "name": "days_back",
+              "value": 7,
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "05b0a4d1-87e2-4804-a567-2730ce0340c0",
+      "name": "Settings",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        464,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "returnAll": true,
+        "simple": false,
+        "filters": {
+          "q": "=newer_than:{{ $('Settings').first().json.days_back }}d -in:sent -in:drafts -in:chats -category:promotions -category:social"
+        },
+        "options": {}
+      },
+      "id": "375997e1-5a32-41d2-b6d1-ec0ac2e6cf99",
+      "name": "Gmail: Get Work Inbox",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        944,
+        512
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Collect last week's emails from both inboxes and keep only the ones a person might expect a reply to.\n// Drops automated senders, mailing lists and the owner's own addresses, keeps the latest message per thread,\n// strips quoted text and trims bodies so each AI call stays small and cheap.\nconst s = $('Settings').first().json;\nconst mine = [s.personal_email, s.work_email].map(e => (e || '').toLowerCase());\nconst automated = /(no-?reply|do-?not-?reply|notifications?@|mailer-daemon|newsletter|updates?@|info@|news@|support@|billing@|receipts?@|security@|alerts?@|accounts?@|verify@|hello@|team@|marketing@)/i;\nconst automatedSubject = /(new (login|sign-?in)|security alert|verification code|verify your|password reset|reset your password|your (receipt|order|invoice)|order confirm|payment (received|confirm)|one-?time (code|password)|OTP|kode verifikasi)/i;\nconst safe = name => { try { return $(name).all().map(i => i.json); } catch (e) { return []; } };\n\nconst inboxes = [\n  { account: 'Personal', messages: safe('Gmail: Get Personal Inbox') },\n  { account: 'Work', messages: safe('Gmail: Get Work Inbox') },\n];\n\nfunction cleanBody(text) {\n  const kept = [];\n  for (const line of (text || '').split('\\n')) {\n    const t = line.trim();\n    if (/^On .+ wrote:$/i.test(t) || /^Pada .+ menulis:$/i.test(t)) break;\n    if (t.startsWith('>')) continue;\n    kept.push(line);\n  }\n  return kept.join('\\n').replace(/\\n{3,}/g, '\\n\\n').trim().slice(0, 3000);\n}\n\nconst latest = {};\nconst seenIds = new Set();\nfor (const { account, messages } of inboxes) {\n  for (const m of messages) {\n    if (!m.id || seenIds.has(m.id)) continue;\n    seenIds.add(m.id);\n    const fromAddress = (m.from?.value?.[0]?.address || '').toLowerCase();\n    const headers = m.headers || {};\n    if (!fromAddress || mine.includes(fromAddress)) continue;\n    if (automated.test(fromAddress) || automatedSubject.test(m.subject || '')) continue;\n    if (headers['list-unsubscribe'] || headers['list-id']) continue;\n    const key = account + ':' + m.threadId;\n    if (!latest[key] || new Date(m.date) > new Date(latest[key].date)) latest[key] = { ...m, account };\n  }\n}\n\nreturn Object.values(latest).map(m => ({\n  json: {\n    account: m.account,\n    messageId: m.id,\n    threadId: m.threadId,\n    fromName: m.from?.value?.[0]?.name || '',\n    fromAddress: (m.from?.value?.[0]?.address || '').toLowerCase(),\n    subject: m.subject || '(no subject)',\n    date: m.date,\n    body: cleanBody(m.text || ''),\n  }\n}));"
+      },
+      "id": "aecabc78-1b44-4956-aa68-b7c67f69f970",
+      "name": "Keep Emails From People",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1184,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "text": "=Today: {{ $now.setZone('Asia/Jakarta').toFormat('cccc, d LLLL yyyy') }}\nInbox: {{ $json.account }}\n\nFrom: {{ $json.fromName }} <{{ $json.fromAddress }}>\nSubject: {{ $json.subject }}\nReceived: {{ $json.date }}\n\n{{ $json.body }}",
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"needs_reply\": {\n      \"type\": \"boolean\",\n      \"description\": \"True only if the owner personally needs to answer this email\"\n    },\n    \"priority\": {\n      \"type\": \"string\",\n      \"enum\": [\n        \"high\",\n        \"normal\",\n        \"low\"\n      ]\n    },\n    \"reason\": {\n      \"type\": \"string\",\n      \"description\": \"One short sentence explaining the decision\"\n    },\n    \"language\": {\n      \"type\": \"string\",\n      \"description\": \"Language of the email, e.g. English or Indonesian\"\n    },\n    \"reply\": {\n      \"type\": \"string\",\n      \"description\": \"Reply body written as the owner, empty when needs_reply is false\"\n    }\n  },\n  \"required\": [\n    \"needs_reply\",\n    \"priority\",\n    \"reason\",\n    \"language\",\n    \"reply\"\n  ]\n}",
+        "options": {
+          "systemPromptTemplate": "You are the inbox owner's assistant. You read one email and decide whether the owner personally needs to reply, and if so you write the reply for them to review.\n\nInput: today's date, which inbox it arrived in (Personal or Work), then the sender, subject, date received and body of one email sent to the inbox owner.\n\nTask:\n1. Decide needs_reply. True only when a real person asks the owner something, invites them, waits on a decision, or would reasonably expect an answer. False for announcements, confirmations, receipts, automatic notices, group emails where no answer is expected, threads that are already closed, and invitations or requests whose date has already passed (compare with today's date).\n2. Set priority: high when there is a deadline within a few days or the sender is waiting on them; normal otherwise; low when a reply is polite but optional.\n3. If needs_reply is true, write the reply as the owner.\n\nOutput: needs_reply, priority, reason (one short sentence), language (the language of the email), reply (the reply body only, no subject line; empty when needs_reply is false).\n\nRules for the reply:\n- Write in the same language as the email (English or Indonesian). Use a slightly more formal tone for the Work inbox.\n- Professional but warm, direct and short: usually 3 to 6 sentences. Lead with the answer.\n- Never invent facts, dates, availability, prices or commitments. Where the owner must decide or fill something in, write it in square brackets, for example [confirm: Thursday 15:00 works?].\n- Never agree to payments, meetings or deadlines on their behalf; propose or ask instead.\n- No em dashes or en dashes. No emojis.\n- Greet the sender by first name when known, and sign off with \"Best regards,\\n[Your Name]\" (or \"Salam,\\n[Your Name]\" in Indonesian).\n\nSCENARIO: weekly inbox triage that prepares reply drafts in Gmail for the owner to review and send themselves. Nothing is sent automatically.",
+          "batching": {
+            "batchSize": 5,
+            "delayBetweenBatches": 1000
+          }
+        }
+      },
+      "id": "3200615e-ebf4-4d24-bb7b-4b6671dade40",
+      "name": "Triage and Draft Reply",
+      "type": "@n8n/n8n-nodes-langchain.informationExtractor",
+      "typeVersion": 1.2,
+      "position": [
+        1424,
+        512
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-5-mini",
+          "cachedResultName": "gpt-5-mini",
+          "cachedResultUrl": ""
+        },
+        "options": {}
+      },
+      "id": "30888bc7-1006-44d0-ad26-b53f2459fa82",
+      "name": "OpenAI Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        1424,
+        736
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cdb7dbc1-297e-4143-a22d-74b7ccc44f07",
+              "leftValue": "={{ $json.output.needs_reply }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "bbb44488-d954-424d-9e59-4f917de69387",
+              "leftValue": "={{ $json.output.reply }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "ebabe4ec-021f-4119-ae11-f777850635b1",
+      "name": "Needs Reply?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1664,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "draft",
+        "subject": "={{ $('Keep Emails From People').item.json.subject.match(/^re:/i) ? $('Keep Emails From People').item.json.subject : 'Re: ' + $('Keep Emails From People').item.json.subject }}",
+        "message": "={{ $json.output.reply }}",
+        "options": {
+          "threadId": "={{ $('Keep Emails From People').item.json.threadId }}",
+          "sendTo": "={{ $('Keep Emails From People').item.json.fromAddress }}"
+        }
+      },
+      "id": "64bd8c37-6156-4324-9d4c-3635baa7efe4",
+      "name": "Gmail: Draft Reply (Work)",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        2176,
+        320
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Runs on every execution, after the draft branch, so the owner always gets a report.\nconst safe = name => { try { return $(name).all().map(i => i.json); } catch (e) { return []; } };\nconst personal = safe('Gmail: Get Personal Inbox').filter(m => m.id);\nconst personalIds = new Set(personal.map(m => m.id));\nconst work = safe('Gmail: Get Work Inbox').filter(m => m.id && !personalIds.has(m.id));\nconst workSkipped = work.length === 0;\nconst fetched = [...personal, ...work];\nconst emails = safe('Keep Emails From People');\nconst triage = safe('Triage and Draft Reply').map(t => t.output || {});\nconst drafts = [...safe('Gmail: Draft Reply (Personal)'), ...safe('Gmail: Draft Reply (Work)')];\nconst days = $('Settings').first().json.days_back;\n\nconst rows = emails.map((e, idx) => ({ ...e, ...(triage[idx] || {}) }));\nconst needs = rows.filter(r => r.needs_reply && r.reply);\nconst noReply = rows.filter(r => !(r.needs_reply && r.reply));\nconst failed = drafts.filter(d => d.error).length;\nconst order = { high: 0, normal: 1, low: 2 };\nneeds.sort((a, b) => (order[a.priority] ?? 1) - (order[b.priority] ?? 1));\n\nconst esc = s => String(s || '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));\nconst line = (r, tag = '') => `<li>${tag}<b>${esc(r.account)}</b> \u00b7 ${esc(r.fromName || r.fromAddress)}: <b>${esc(r.subject)}</b><br><i>${esc(r.reason || 'not checked')}</i></li>`;\n\nconst html = `\n<p><b>${needs.length} reply draft${needs.length === 1 ? '' : 's'} ready.</b> Each draft is saved in the Drafts folder of the inbox the email arrived in. Check anything in [square brackets] before sending.</p>\n${needs.length ? `<ol>${needs.map(r => line(r, `[${esc(r.priority)}] `)).join('')}</ol>` : '<p>Nothing needed a reply this time.</p>'}\n<p><b>Read but no reply needed (${noReply.length}):</b></p>\n${noReply.length ? `<ul>${noReply.map(r => line(r)).join('')}</ul>` : '<p>None.</p>'}\n<p style=\"color:#666\">Last ${days} days across Personal and Work: ${fetched.length} emails fetched, ${fetched.length - emails.length} skipped as automated or newsletters, ${emails.length} read by the AI. Drafts that failed to save: ${failed}.${workSkipped ? ' <b>The Work inbox was not read (its Gmail login is not connected yet, or it had no new mail).</b>' : ''}</p>`;\n\nreturn [{ json: { subject: `Inbox check: ${needs.length} reply draft${needs.length === 1 ? '' : 's'} ready`, html } }];"
+      },
+      "id": "ab56883d-87c0-4e7b-ab76-5ea582943233",
+      "name": "Build Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1184,
+        944
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Settings').first().json.summary_to }}",
+        "subject": "={{ $json.subject }}",
+        "message": "={{ $json.html }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "cc22f937-e171-4ce0-9a4c-3a5c232c952b",
+      "name": "Gmail: Send Summary",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1456,
+        944
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {},
+      "id": "0ee8c28f-4abc-4ffd-906d-ab623f027f22",
+      "name": "No Reply Needed",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1904,
+        656
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Weekly Reply Email Monitor Agent\n*A note from the author:  I built this workflow so that no email waiting on my answer gets lost between my personal and work inboxes. Every Monday at 07:00 WIB (or whenever I click Test Run), it reads the last 7 days of both inboxes, skips automated mail and mailing lists, and asks the AI once per remaining email whether I need to reply. For each email that does, it saves a **reply draft in the same Gmail thread, inside the inbox the email arrived in**. It then sends me one summary email listing every email it read and what it decided.\n\n**Nothing is sent to anyone else.** Replies stay in Drafts until I review and send them myself. The only email the workflow sends is the summary, which goes to my email address.\n\n**Setup**\n1. Settings: `personal_email` and `work_email` are the two inboxes to read; `summary_to` is where the summary goes.\n2. Gmail credentials: the Personal login on *Get Personal Inbox* and *Draft Reply (Personal)*; the Personal login also sends the summary. The Work login goes on *Get Work Inbox* and *Draft Reply (Work)*.\n3. OpenAI credential on the OpenAI Model node (gpt-5-mini; gpt-5-nano is cheaper if it appears in the list).\n4. The timezone is already set to Asia/Jakarta.\n\n**Cost:** one AI call per email that passes the filter. Running Test Run twice on the same week creates duplicate drafts.\n\nHope you find it useful,\nMarbella Elpantja",
+        "height": 480,
+        "width": 1544
+      },
+      "id": "a1dcc993-5711-4f78-9a97-5b91ed754824",
+      "name": "About this workflow",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        176,
+        -128
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "returnAll": true,
+        "simple": false,
+        "filters": {
+          "q": "=newer_than:{{ $('Settings').first().json.days_back }}d -in:sent -in:drafts -in:chats -category:promotions -category:social"
+        },
+        "options": {}
+      },
+      "id": "b3310d9f-f31c-4d58-a1a2-6b7db50f54bb",
+      "name": "Gmail: Get Personal Inbox",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        704,
+        512
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "resource": "draft",
+        "subject": "={{ $('Keep Emails From People').item.json.subject.match(/^re:/i) ? $('Keep Emails From People').item.json.subject : 'Re: ' + $('Keep Emails From People').item.json.subject }}",
+        "message": "={{ $json.output.reply }}",
+        "options": {
+          "threadId": "={{ $('Keep Emails From People').item.json.threadId }}",
+          "sendTo": "={{ $('Keep Emails From People').item.json.fromAddress }}"
+        }
+      },
+      "id": "65e70350-50b4-4e25-a97b-67f4a3c98f62",
+      "name": "Gmail: Draft Reply (Personal)",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        2176,
+        512
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "1c7b97c9-49e0-47e8-82da-f842945ec943",
+              "leftValue": "={{ $('Keep Emails From People').item.json.account }}",
+              "rightValue": "Work",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "920f05f9-722c-4d04-8d78-e7cbd9dfcaca",
+      "name": "Work Account?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1904,
+        416
+      ]
+    }
+  ],
+  "connections": {
+    "Every Monday 07:00": {
+      "main": [
+        [
+          {
+            "node": "Settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Test Run": {
+      "main": [
+        [
+          {
+            "node": "Settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Settings": {
+      "main": [
+        [
+          {
+            "node": "Gmail: Get Personal Inbox",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail: Get Personal Inbox": {
+      "main": [
+        [
+          {
+            "node": "Gmail: Get Work Inbox",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail: Get Work Inbox": {
+      "main": [
+        [
+          {
+            "node": "Keep Emails From People",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Build Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Keep Emails From People": {
+      "main": [
+        [
+          {
+            "node": "Triage and Draft Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Triage and Draft Reply",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Triage and Draft Reply": {
+      "main": [
+        [
+          {
+            "node": "Needs Reply?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs Reply?": {
+      "main": [
+        [
+          {
+            "node": "Work Account?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Reply Needed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Work Account?": {
+      "main": [
+        [
+          {
+            "node": "Gmail: Draft Reply (Work)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Gmail: Draft Reply (Personal)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Summary": {
+      "main": [
+        [
+          {
+            "node": "Gmail: Send Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "nodeGroups": [],
+  "pinData": {},
+  "sourceWorkflowId": null,
+  "versionMetadata": {
+    "name": null,
+    "description": null
+  }
+}
