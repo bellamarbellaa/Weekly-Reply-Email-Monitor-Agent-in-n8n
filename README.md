@@ -19,13 +19,13 @@ Every Monday at 07:00 (or whenever you click Test Run), the workflow moves throu
 
 ## How to use
 
-1. Run a self hosted n8n (built and tested on n8n 2.34.6) and open it at `http://localhost:5678`.
-2. Create a Google Cloud OAuth client for Gmail: create a project, enable the Gmail API, set the consent screen to External and Testing, add both of your Gmail addresses as Test users, and add `http://localhost:5678/rest/oauth2-credential/callback` as an authorized redirect URI.
+1. Run a self hosted n8n (built and tested on n8n 2.34.6).
+2. Create a Google Cloud OAuth client for Gmail: create a project, enable the Gmail API, set the consent screen to External and Testing, add both of your Gmail addresses as Test users, and add your n8n redirect URL (`<your-n8n-url>/rest/oauth2-credential/callback`, shown in n8n's Gmail credential window) as an authorized redirect URI.
 3. In n8n, import `weekly-reply-email-monitor-agent.json` (Import from File).
 4. Create two Gmail OAuth2 credentials, one signed in as each inbox. Use an Incognito window or "Use another account" when signing in, because Google's account chooser tends to pick the account already active in your browser.
 5. Attach the personal credential to *Get Personal Inbox*, *Draft Reply (Personal)* and *Send Summary*, and the work credential to *Get Work Inbox* and *Draft Reply (Work)*.
 6. Add an OpenAI credential to the *OpenAI Model* node.
-7. Fill in the **Settings** node, set `days_back` to 2 for a small first test, and click Execute workflow. Check your Drafts folders and the summary email, then set `days_back` back to 7 and publish the workflow.
+7. Fill in every placeholder listed in `placeholders.md`, set `days_back` to 2 for a small first test, and click Execute workflow. Check your Drafts folders and the summary email, then set `days_back` back to 7 and publish the workflow.
 
 A self hosted n8n only runs schedules while it is running, so the computer needs to be awake with n8n started on Monday morning.
 
@@ -33,7 +33,7 @@ A self hosted n8n only runs schedules while it is running, so the computer needs
 
 ## Make it your own
 
-Everything you need to change lives in two places. The **Settings** node holds the addresses, the summary recipient, your name and the number of days to look back. The system prompt in *Triage and Draft Reply* holds the reply style: replace `[Your Name]` with your name, and adjust the tone, the languages (it currently handles English and Indonesian) and what counts as needing a reply. The schedule and the workflow timezone (Asia/Jakarta) can be changed in the trigger and in the workflow settings. To use only one inbox, disable the two work nodes; the Code node already removes the duplicate emails that a disabled node passes through.
+Everything you need to change lives in two places. The **Settings** node holds the addresses, the summary recipient, your name and the number of days to look back. The system prompt in *Triage and Draft Reply* holds the reply style; it is also in `system-prompt.md`, where it is easier to read and edit. Replace `[Your Name]` with your name, and adjust the tone, the languages (it currently handles English and Indonesian) and what counts as needing a reply. The schedule and the workflow timezone (Asia/Jakarta) can be changed in the trigger and in the workflow settings. To use only one inbox, disable the two work nodes; the Code node already removes the duplicate emails that a disabled node passes through.
 
 ---
 
@@ -41,6 +41,12 @@ Everything you need to change lives in two places. The **Settings** node holds t
 
 **Workflow**
 `weekly-reply-email-monitor-agent.json`: the complete n8n workflow, ready to import, with no credentials and placeholder addresses.
+
+**Placeholders**
+`placeholders.md`: every value to fill in before the first run (Settings fields, your name in the prompt, credentials per node, the Google redirect URI), in one checklist.
+
+**System prompt**
+`system-prompt.md`: the AI's full instructions, the text it receives for each email and the JSON schema it must answer in, with tips for editing.
 
 **Author's note**
 The sticky note at the top of the canvas explains in plain words what the workflow does, what it never does, how to set it up and what it costs.
