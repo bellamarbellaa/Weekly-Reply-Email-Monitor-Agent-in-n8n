@@ -53,10 +53,4 @@ The sticky note at the top of the canvas explains in plain words what the workfl
 
 ---
 
-## What's intentionally not finished
-
-Running the workflow twice on the same week creates duplicate drafts, because it does not check for drafts it already made. It reads plain text bodies only, so attachments and images are ignored. It handles English and Indonesian replies; other languages will work but are not tuned. There is no automatic retry if the computer was asleep at the scheduled time.
-
----
-
 Built with Claude Code.
